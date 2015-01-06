@@ -1,0 +1,375 @@
+dd
+==
+    Version   1.00
+(C) Copyright Marc Remes 1993
+
+
+Highlights
+
+dd is a minimal, but powerful debug-shell for Os2. It provides you a
+list of DosDebug events your program generates, with at appropriate
+times source-level information. Being non-interactive, it loads the 
+debuggee extremely fast, almost no regular time is taken by dd.
+The more obvious exceptions as ACCESS_VIOLATION, are accompanied by
+registerdump and linenumber, sourcefile and function of occurence, 
+all the way up the stack to your main or your _beginned thread.
+Never run without it. It beats ipmd, no overhead, but oh so handy...
+
+
+Files
+
+dd.exe starts up your.exe in trace-mode, listing events as they happen.
+The list is written to your.ddD. Information is parsed - in idle time -
+from your.map and written to your.ddI.
+dd.exe are in fact two programs. Using the i switch on dd, you do not
+activate the debugger, but work with dd's information.
+With dd I you can write .ddI to your.exe. dd I parses your.map
+and writes the .ddI to the end of your.exe. Also you can run a check
+on your.ddI.
+When dd is debugging your.exe, dd will search .ddI consecutively
+in your.exe, in your.ddI, or will try to build it from your.map.
+If no .ddI is found, your.exe (or .dll) is debugged without symbolic
+info.
+
+
+Specs
+
+You need .map files with linenumber information for the sources
+you want debugged. Currently only link386 .map files are known to
+be parsed correctly,
+link386 must be given at least /M /DE /L or no .ddI can be built.
+icc must have of course -Ti.
+The system runs fine on this tools.ini
+CFLAGS = -C -Ses -Q -W3 -Kabeprx -Gdmsen- -Mp -Ti -Fd- -O-
+LFLAGS  = /NoLogo /Map /LineNumbers /Debug /NoI
+CC      = icc $(CFLAGS)
+LINK    = link386 $(LFLAGS)
+The executables are made and tested with icc.exe and link386.exe. 
+You cannot interact with dd except for Ctrl-C, which is
+about the fastest method of terminating a program, and Pause, which could
+pause your program.
+dd supports .exe's running multiple threads, loading multiple .dlls.
+
+Usage 
+
+dd   [/V[erbose]] <prog[.exe]> [arg1] [arg2] [...]
+     Debug - in /Verbose mode - prog.exe arg1 arg2
+
+dd takes only one switch, /V merely puts out some more information,
+mainly debug info about dd itself. /V must precede program, which is
+mandatory. You can specify 256 bytes of arguments to program. 
+
+dd I [/Flags]     <prog[.exe]> [prog.dll] [[/Flags] <more*.dll>
+     Work with dd's information on prog.exe
+     Where /Flags can be:
+     [/B]                   Build ddI
+     [/D]                   Delete .map after build
+     [/DDEBUG]              Delete DebugInfo from executable
+     [/C[heck]]             Check ddI
+     [/I[nfo]]              Display contents of ddI
+     [/MAPFILE:<file.map>]  Use file.map to build ddI
+     [/M:<[hex][dec]>]      Map EIP (hex/dec) in executable
+
+Though the dd I step is not really necessary, it has some nice features.
+No flags implies /C, a check is run on the .ddI. Flags must proceed
+mandatory .exe/.dll.
+/B builds the .ddI by parsing .map and appends .ddI to the .exe/.dll when
+possible, .map is specified with /MAPFILE:this.map or created by using
+filenamebase padded with .map. .map must be current, i.e. not out of date
+in respect to .exe/.dll. Because link386 first writes .exe and then .map,
+a margin of 60 seconds is allowed to allow long linktimes. When this
+margin is not enough, touch .map.
+When short on diskspace, dd I /D deletes the .map after building .ddI.
+When even more short on diskspace, dd I /DDEBUG deletes icc/ipmd
+debuginformation, but not .ddI. 
+/C checks .ddI and displays brief contents. /V displays .ddI in full.
+/M:hex/dec searches a certain EIP in an executable, nice post-mortem,
+EIP is masked 0x0000FFFF, so multiple occurrences can happen.
+
+Examples :                                                           
+ dd.exe dd.exe I dd.exe
+   DosDebugs dd.exe I dd.exe
+ dd dd I dd
+   Same thing
+ dd I dd.exe
+   Checks for dd.ddI, and summarizes
+ dd I /I *.exe
+   Checks for all .exe .ddI, displays full .ddI and summarizes
+ dd I /B dd.exe
+   Uses dd.map to build dd.exe's .ddI
+ dd I /MAPFILE:other.map dd.dll
+   Uses other.map to build dd.dll's ddI,
+   useful when .exe and .dll with same basename                      
+ dd I /M:0x10032 *.exe *.dll
+   Searches in all .exe and .dll for sourceline where EIP == 0x010032,
+   or 0x020032, or 0x1FA90032
+ dd I /B /D /DDEBUG your.exe
+   Builds your.ddI from your.map, deletes your.map and
+   deletes link386's DebugInformation from your.exe
+ dd your.exe
+   DosDebugs your.exe, starts a search for .ddI, and tells you
+   how come you trapped X/0.
+
+Also try:
+dd dd I /T dd
+
+I always run my programs through dd. It loads in no time, gives
+online debugging info and leaves .ddD for later inspection.
+
+
+Internals
+
+dd DosStarts your.exe with TraceOpt = 1, and connects to your.exe by 
+the DosDebug API. dd repeately receives notifications from DosDebug, 
+reacting by giving appropriate DosDebug commands. 
+On LibLoad notifications valid addresses for module are determined and 
+.ddI is searched/build in idle time.
+LibLoads from system libpaths are ommitted from the list, except when /V
+is used.
+ThreadCreate stores thread's stackpointer and stacksize.
+Exception notifications show modulename of occurence and description.
+For DBG_X_PRE_FIRST_CHANCE and DBG_X_STACK_INVALID the stack is always
+dumped, matching EIPs on the stack with loaded .ddI. 
+For DBG_X_FIRST_CHANCE, DBG_X_LAST_CHANCE notifications, currently only
+XCPT_ACCESS_VIOLATION, XCPT_INTEGER_DIVIDE_BY_ZERO,
+XCPT_FLOAT_DIVIDE_BY_ZERO, XCPT_FLOAT_STACK_CHECK and 
+XCPT_FLOAT_DENORMAL_OPERAND generate this dump.
+
+The stack is inspected in rather a crude way. No stackframe calculation
+is done, instead every long on the stack from ESP to its top is checked
+for being a valid EIP in the loaded .ddI.
+This eliminates dumps … la DDE4MBS: calling DDE4MBS:, but leads to 
+frequent hits. Therefore every hit is doublechecked for having a
+CALL assembly-opcode just before point of return. Currently only opcodes 
+for CALL rel, CALL r/m, CALL ptr and CALL Reg are checked as valid callees.
+Functions allocating a lot of uninitialized stackspace, will evidently 
+leave, on the stack, valid return-addresses to previously called functions.
+These addresses could possible be checked valid afterwards, but can
+quickly filtered out with source at hand.
+
+dd will in no way interfere with the execution of the debuggee,
+exceptions are just passed through after inspection.
+                            
+Conflicts arise between ipmd and dd when debugging the same .dll.
+
+Documentation referenced when writing this code, is to be found in
+ToolKt20's guiref20.inf.
+
+dd.exe itself is compiled __DEBUG_ALLOC__ and statically linked,
+DDE4MBSI-linked code - faster, smaller - on simple request.
+
+
+Coming up
+
+.ddS, source excerpts from offending code.
+.ddX, an associative stackdump
+A bonus when running the 999th process
+? Commandline
+? Sourcecode
+
+
+Special thanks
+
+to Dr. Dobbs for the Journal
+to my friends at KB Brussels for alpha-testing
+
+
+Conditions of use
+
+I garantee nothing and certainly do not take responsability on you
+using the program.
+This program isn't freeware, shareware or any-where. It is software
+I hope you will appreciate. 
+You may distribute the code as you wish, provided this .doc stays with it.
+
+Any bugs, requests, __DEBUG_ALLOC__dmps, typo's, WIBNTH,
+please leave a message at IBMBBS Belgium, 32 2 718 6010.
+In any case WYSIWYG
+
+
+Best regards
+
+Marc Remes
+
+
+    Version   2.00
+
+Highlights
+
+Finally version 2.00, as promised I deliver .ddX, which in course
+became .ddT, still no bonus, no commandline, but better yet
+complete sourcecode for you to hack at will.
+This also will be the final version I distribute for dd. I think
+the program now does its job better as ever, and is very complete.
+At least as much complete as I want it to be. Again feel free
+to enhance.
+Sourcecode is provided as is, no comments.
+You'll see work in progress, lazy, quirky, often written in
+separate stages, guessing, to hungarian or not, but I personally
+garantee some nice excerpts and fine thoughts.
+And no bugs I presume.
+
+
+Files
+
+dd.exe still starts up your.exe in trace-mode, writing to .ddD, 
+reading from .ddI. When using the T switch more elaborate
+stackinformation is written to .ddT. .ddT contains hex/ascii
+stackdump, and strings pointed to by the stack.
+You can now manipulate link386 /DebugInformation, extract it
+to .deB files.
+
+
+Specs
+
+Things stand as they were, but now you have sourcecode.
+I coded ANSI with occasional obligate systemcalls. 
+When you run into SYS1804 concerning DDE4MBS.DLL, you're not
+running IBMC, at least not libpathing to its .dlls, compile and 
+link the program using your tools. I leave you dd.m and tools.ini.
+If make fails to build dd.ddI at the end, use shipped dd.ddI and
+type 'dd T7'. If this gives you output as
+
+Tue Jun  1 23:26:28 1993
+$ 147  1   DBG_N_SUCCESS      Connected C:\WORK\DD.EXE
+$ 147  1   DBG_N_ModuleLoad   928  C:\WORK\DD.EXE
+$ 147  1   DBG_N_ThreadCreate 
+$ 147  1   DBG_N_ModuleLoad   944  C:\IBMC\DLL\DDE4MBS.DLL
+$ 147  1   DBG_N_Exception    <C:\IBMC\DLL\DDE4MBS.DLL>   FIRST_CHANCE
+           XCPT_ACCESS_VIOLATION WRITE_ACCESS
+ 00010000   22 :C:\Work\ddm.c                       "main"
+ 0001087c   50 :C:\Work\ddT.c                       "ddT7"
+ 0001090f   72 :C:\Work\ddT.c                       "ddT"
+ 00010c47  201 :C:\Work\ddm.c                       "ParseArgs"
+ 000100c0   52 :C:\Work\ddm.c                       "main"
+CS:EIP  005B:1A02C1A4         15BA11C0
+EAX 00000000 EBX 00000002 ECX 0000000A EDX 0000002A  DS 0053 ES 0053
+EBP 000255B8 ESP 0002544C EDI 00000000 ESI 00020281  SS 0053 FS 150B GS 0000
+$ 147  1   DBG_N_Exception    <C:\OS2\DLL\DOSCALL1.DLL>   FIRST_CHANCE
+           XCPT_PROCESS_TERMINATE
+$ 147  1   DBG_N_ThreadTerm   99   not in DosExitList
+$ 147  1   DBG_N_ProcTerm     99   TC_EXIT      ExitList done
+$ 147  0   DBG_N_SUCCESS
+Tue Jun  1 23:26:38 1993
+
+the system did exactly what icc, link386 and dd would do at this
+time of day.
+More probably you need to adapt ddi.c's DdiBuild() to parse 
+the mapfile your linker produces. The rest should compile OK 
+provided you have an ANSI-compiler and access to OS2 headers.
+If you do not have a compiler this program is not (yet) for you.
+With the Tn switches the debugger debugs itself.
+dd nows turns the pointer when dumping.
+
+
+Usage 
+
+Some more options: the T switch, the Tn switch, /BDDI,
+manipulate .deB files.
+
+ dd   [/Flags]     <1[.exe]> [arg1] [arg2] [..]  DosDebug one
+ dd T [/Flags]     <1[.exe]> [arg1] [arg2] [..]  DosDebug & dump .ddT
+      [/F<file.ddD>]         Write trace to file.ddD
+      [/V[erbose]]           Verbose mode
+ dd Tn                       Desinfects dd.exe for 1 < n > 9
+ dd I [/Flags]     <1[.exe]> [2.dll] [[/Flags] <?.dll>]
+      [/B]                   Build ddI
+      [/BDDI]                Build ddI and write .ddI
+      [/D]                   Delete .map after build
+      [/DDEBUG]              Delete DebugInfo from executable
+      [/MDEBUG]              Move DebugInfo to .deB
+      [/ADEBUG]              Add .deB to executable
+      [/C[heck]]             Check ddI
+      [/I[nfo]]              Display contents of ddI
+      [/MAPFILE:<file.map>]  Use file.map to build ddI
+      [/M:<[hex][dec]>]      Map EIP (hex/dec) in executable
+
+
+Internals
+
+You will discover internals as you read the code. Debugging
+is done in a _beginned thread, ddI reading/building is done in
+yet an other one. Trial and error left me with thrDD
+tracing-loop, from where ddEvent is called. Important events are:
+ - ModuleLoad, where valid addresses are collected and .ddI is read
+ - ThreadCreate, where base of stack is stored
+ - Exception, where module, stack and registers are dumped
+dd now dumps all exceptions except XCPT_SIGNAL, 
+XCPT_PROCESS_TERMINATE, XCPT_ASYNC_PROCESS_TERMINATE.
+
+ddExec.c is the front end source, dd.c handles the actual
+debug-events and ddi.c manipulates .ddI. ddm.c contains main()
+and parses arguments, ddT?.c are the testfiles. 
+
+With the Tn switch the debugger debugs itself, dd T1 goes straight
+to the access violation from ddT1() in ddT1.c, hereby checking 
+if .ddI is OK,
+The TTn debugs cmd's copy to dd to ddd, debugs building ddd.ddI
+and finally debugs ddd debugging dd going wild. The ddd.exe step
+is necessary because .ddd files are kept open some of the time
+and dd dd dd /T3 would fail to write to open dd.ddd. dd ddd dd /t3
+writes intermediate ddd.ddd.
+
+For all you lucky guys using IBM C Set/2(++), no need to debug 
+the debugger. #include ddexec.h, link dd.obj+ddi.obj+ddexec.obj
+and your program will trace started childprocesses. 
+There may be some quirks with combinations of with EXEC_ flags,
+not fully tested, but ddm.c's EXEC_ flags will do the job nicely,
+or perform some debug/compile cycles.
+
+Heapspace was originally allocated by malloc. Frequently calling
+realloc, with necceasry memmov's, led to mrMalloc, which gets
+memory from DosAllocMem, commiting memory when needed.
+
+.ddT files are created by, at Exception time, hex/ascii dumping
+the stack, and then checking for all longs on the stack wether
+they are strings or wether they are themselves addresses, pointers
+to other data, hereby displaying all ascii-Z strings and
+sourcecode information up to 8 levels deep. Can take a longer time
+with large stacks.
+
+When you want to move dd to a different compiler/linker
+only DdiBuild() in ddi.c needs to be rewritten to build .ddI
+from the mapfile. Fill in the DDI struct correctly and dd
+will run even different languages.
+
+MkDir .\OB2 or nMake dd.m will fail.
+
+Due to the T switch, debugged executable starting with letter T
+must be qualified by filename.extention to dd.
+
+Manipulating .deB files works when no resources are rc-compiled
+to the executable. I always keep my .res in a separate .dll.
+
+
+Coming up
+
+As I understand C Set++ V3 will have a new linker, probably will
+need to parse the .map file it produces. Obviously the PowerPC will
+need support.
+If and when I find the time. 
+
+
+Special thanks
+
+as above
+and credit to an IBMer whose name escaped, for his ExecPgmTitle()
+which has the trace-option added.
+
+
+Conditions of use
+
+as above
+I still don't garantee anything and do not take responsability
+on you using the program.
+Please distribute, keep the .doc with it, and use it. 
+
+
+Any bugs, enhancements, __DEBUG_ALLOC__dmps, typo's, WIBNTH,
+please as above.
+WYS is still WYG, but now at least YouKnowWhatYouGet.
+
+
+Best regards
+
+Marc Remes
